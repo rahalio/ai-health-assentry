@@ -1,0 +1,1776 @@
+openapi: 3.0.3
+info:
+  title: Assentry
+  version: 0.1.0
+  description: >-
+    Consent and purpose control plane for consumer-facing health AI. Assentry
+    decides per request whether a registered channel may use a data category for a
+    declared purpose under a live member grant, applies co-presence controls on
+    shared and voice channels, binds source of truth and validity windows to answers
+    asserting cost or benefit facts, enforces steering disclosure, and gives the
+    member a readable ledger and a dispute route.
+  x-product-slug: ai-health-assentry
+  x-source: ai-in-health/Accenture-Digital-Health-Technology-Vision-2017-Trend-1/
+servers:
+  - url: https://api.example.com
+tags:
+  - name: Identity
+    description: Member resolution and proportionate identity assurance
+  - name: Purposes and Scopes
+    description: Purpose catalogue, data scopes, and sensitive-segment policy
+  - name: Channels
+    description: Channel registration, legal instruments, and approvals
+  - name: Consent Grants
+    description: Contextual, expiring grants and one-action revocation
+  - name: Access Decisions
+    description: Per-request allow, narrowed allow, or refusal with a member-safe reason
+  - name: Interaction Ledger
+    description: Member-readable record of data used and answers given
+  - name: Answer Provenance
+    description: Source of truth, verification time, and validity windows
+  - name: Disputes and Governance
+    description: Member disputes, retention schedules, and policy administration
+paths:
+  /v1/identity/assurance-sessions:
+    post:
+      operationId: openAssuranceSession
+      tags: [Identity]
+      description: >-
+        Resolves the member for a channel session and returns the assurance level
+        achieved, plus the level required for higher-sensitivity purposes.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssuranceSessionCreate"
+      responses:
+        "201":
+          description: Assurance session opened
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeIdentityAssuranceRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/identity/assurance-sessions/{sessionId}/step-up:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: stepUpAssurance
+      tags: [Identity]
+      description: >-
+        Raises assurance only for the sensitivity actually requested, so a benefits
+        question is not held to the standard of a clinical-history question.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method, targetLevel]
+              properties:
+                method:
+                  type: string
+                  enum: [one_time_passcode, knowledge_based, document_verification, voice_recognition, in_app_biometric, agent_assisted]
+                targetLevel:
+                  $ref: "#/components/schemas/AssuranceLevel"
+                evidenceReference:
+                  type: string
+      responses:
+        "200":
+          description: Assurance level updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeIdentityAssuranceRecord"
+  /v1/purposes:
+    get:
+      operationId: listPurposeDefinitions
+      tags: [Purposes and Scopes]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, restricted, retired]
+      responses:
+        "200":
+          description: Purpose catalogue page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopePurposeDefinition"
+    post:
+      operationId: createPurposeDefinition
+      tags: [Purposes and Scopes]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurposeDefinitionCreate"
+      responses:
+        "201":
+          description: Purpose created with member-readable wording
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopePurposeDefinition"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+  /v1/purposes/{purposeId}/restriction:
+    parameters:
+      - name: purposeId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: restrictPurpose
+      tags: [Purposes and Scopes]
+      description: >-
+        Narrows or retires a purpose. Takes effect on the next access decision with
+        no product release.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, actionedBy, reason]
+              properties:
+                action:
+                  type: string
+                  enum: [narrow_scopes, restrict_channels, retire]
+                removeScopes:
+                  type: array
+                  items:
+                    type: string
+                actionedBy:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Purpose restricted, effective immediately
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopePurposeDefinition"
+  /v1/data-scopes:
+    get:
+      operationId: listDataScopes
+      tags: [Purposes and Scopes]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Data scopes including sensitive segments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeDataScope"
+  /v1/sensitive-segment-policies:
+    put:
+      operationId: setSensitiveSegmentPolicy
+      tags: [Purposes and Scopes]
+      description: >-
+        Governs which channels may ever carry a heightened-sensitivity segment and
+        the wording required for its separate grant.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensitiveSegmentPolicy"
+      responses:
+        "200":
+          description: Sensitive-segment policy set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeSensitiveSegmentPolicy"
+  /v1/channels:
+    get:
+      operationId: listChannelRegistrations
+      tags: [Channels]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [registered, approved, suspended, lapsed, retired]
+      responses:
+        "200":
+          description: Channels page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeChannelRegistration"
+    post:
+      operationId: registerChannel
+      tags: [Channels]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelRegistrationCreate"
+      responses:
+        "201":
+          description: Channel registered, unapproved until purposes are granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeChannelRegistration"
+  /v1/channels/{channelId}/approvals:
+    parameters:
+      - $ref: "#/components/parameters/ChannelId"
+    post:
+      operationId: approveChannelPurpose
+      tags: [Channels]
+      description: >-
+        Approves one channel for one purpose and its data categories. External
+        channels require a recorded legal instrument with an expiry.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purposeId, approvedBy]
+              properties:
+                purposeId:
+                  type: string
+                allowedScopes:
+                  type: array
+                  items:
+                    type: string
+                sensitiveSegmentsAllowed:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/SensitiveSegment"
+                recipientAgreement:
+                  $ref: "#/components/schemas/RecipientAgreement"
+                approvedBy:
+                  type: string
+                expiresOn:
+                  type: string
+                  format: date
+      responses:
+        "201":
+          description: Channel purpose approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeChannelRegistration"
+        "422":
+          description: External channel without a valid legal instrument
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/channels/{channelId}/suspension:
+    parameters:
+      - $ref: "#/components/parameters/ChannelId"
+    post:
+      operationId: suspendChannel
+      tags: [Channels]
+      description: >-
+        Halts processing immediately and moves in-flight sessions to a compliant
+        fallback.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, suspendedBy]
+              properties:
+                reason:
+                  type: string
+                  enum: [instrument_expired, approval_lapsed, security_incident, privacy_incident, policy_change, vendor_request]
+                detail:
+                  type: string
+                suspendedBy:
+                  type: string
+      responses:
+        "202":
+          description: Channel suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeChannelRegistration"
+  /v1/members/{personId}/grants:
+    parameters:
+      - $ref: "#/components/parameters/PersonId"
+    get:
+      operationId: listConsentGrants
+      tags: [Consent Grants]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, expired, revoked, pending]
+      responses:
+        "200":
+          description: Grants held by this member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeConsentGrant"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: requestConsentGrant
+      tags: [Consent Grants]
+      description: >-
+        Requests a narrow, expiring grant at the moment the answer needs it, with the
+        member-readable wording that will be shown in the channel.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentGrantRequest"
+      responses:
+        "201":
+          description: Grant recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeConsentGrant"
+  /v1/members/{personId}/grants/{grantId}/revocation:
+    parameters:
+      - $ref: "#/components/parameters/PersonId"
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: revokeConsentGrant
+      tags: [Consent Grants]
+      description: >-
+        One-action revocation effective before the next access decision. Returns the
+        capabilities the member will lose so degradation can be explained.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  enum: [no_longer_needed, privacy_concern, wrong_answers, shared_device_concern, unspecified]
+      responses:
+        "200":
+          description: Grant revoked with capability impact listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeConsentGrant"
+  /v1/access-decisions:
+    post:
+      operationId: evaluateAccessDecision
+      tags: [Access Decisions]
+      description: >-
+        Evaluated before any member data is read. Returns allow, narrowed allow, or
+        refusal with a member-safe reason that does not reveal whether a sensitive
+        segment exists.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessDecisionRequest"
+      responses:
+        "200":
+          description: Access decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeAccessDecision"
+        "403":
+          description: Channel not approved for the declared purpose
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/access-decisions/{decisionId}/co-presence-control:
+    parameters:
+      - name: decisionId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: applyCoPresenceControl
+      tags: [Access Decisions]
+      description: >-
+        Withholds, summarises, or redirects a sensitive answer on a shared or voice
+        channel, and records the decision.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoPresenceControlRequest"
+      responses:
+        "200":
+          description: Control applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeCoPresenceControl"
+  /v1/interactions:
+    post:
+      operationId: recordInteraction
+      tags: [Interaction Ledger]
+      description: >-
+        Records what the assistant was asked, what it answered, which grant and
+        decision authorised it, and any disclosure presented.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InteractionRecordCreate"
+      responses:
+        "201":
+          description: Interaction recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeInteractionRecord"
+  /v1/members/{personId}/ledger:
+    parameters:
+      - $ref: "#/components/parameters/PersonId"
+    get:
+      operationId: getMemberDisclosureLedger
+      tags: [Interaction Ledger]
+      description: >-
+        Member-readable history of data used, purpose, channel, and what they were
+        told, available without a special request process.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Disclosure ledger page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeDisclosureLedgerEntry"
+  /v1/interactions/{interactionId}/agent-context:
+    parameters:
+      - name: interactionId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getAgentContext
+      tags: [Interaction Ledger]
+      description: >-
+        What the assistant told this member and the basis for it, for the member
+        services agent taking the follow-up call.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Agent context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeInteractionRecord"
+  /v1/answer-provenance:
+    post:
+      operationId: bindAnswerProvenance
+      tags: [Answer Provenance]
+      description: >-
+        Binds source of truth, verification time, and validity window to an answer
+        asserting cost, benefit, accumulator, network status, or coverage.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswerProvenanceCreate"
+      responses:
+        "201":
+          description: Provenance bound
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeAnswerProvenance"
+        "409":
+          description: Source of truth unavailable, answer must not be estimated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+  /v1/answer-provenance/{provenanceId}/validity:
+    parameters:
+      - name: provenanceId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: checkAnswerValidity
+      tags: [Answer Provenance]
+      description: Confirms whether a previously bound answer is still inside its validity window.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Validity state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeAnswerProvenance"
+  /v1/steering-disclosures:
+    post:
+      operationId: recordSteeringDisclosure
+      tags: [Answer Provenance]
+      description: >-
+        Required wherever curation presents options in which the organisation holds
+        an economic interest.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SteeringDisclosure"
+      responses:
+        "201":
+          description: Steering disclosure recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeSteeringDisclosure"
+  /v1/disputes:
+    get:
+      operationId: listDisputeCases
+      tags: [Disputes and Governance]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, under_review, resolved, withdrawn, overdue]
+      responses:
+        "200":
+          description: Disputes page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeDisputeCase"
+    post:
+      operationId: openDisputeCase
+      tags: [Disputes and Governance]
+      description: >-
+        Member challenge to what an assistant said, opened with the interaction
+        attached so it is answered from the record.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeCaseCreate"
+      responses:
+        "201":
+          description: Dispute opened with resolution deadline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeDisputeCase"
+  /v1/disputes/{disputeId}/resolution:
+    parameters:
+      - name: disputeId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: resolveDisputeCase
+      tags: [Disputes and Governance]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outcome, resolvedBy, rationale]
+              properties:
+                outcome:
+                  type: string
+                  enum: [answer_confirmed, answer_incorrect, answer_stale, scope_violation, no_finding]
+                resolvedBy:
+                  type: string
+                rationale:
+                  type: string
+                remedy:
+                  type: string
+                  enum: [corrected_answer, claim_reprocessed, policy_change, channel_suspended, none]
+      responses:
+        "200":
+          description: Dispute resolved from the recorded interaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeDisputeCase"
+  /v1/retention-schedules:
+    get:
+      operationId: listRetentionSchedules
+      tags: [Disputes and Governance]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Retention schedules per data category and channel
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListEnvelopeRetentionSchedule"
+    put:
+      operationId: setRetentionSchedule
+      tags: [Disputes and Governance]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetentionSchedule"
+      responses:
+        "200":
+          description: Schedule set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeRetentionSchedule"
+  /v1/members/{personId}/deletion-evidence:
+    parameters:
+      - $ref: "#/components/parameters/PersonId"
+    get:
+      operationId: getDeletionEvidence
+      tags: [Disputes and Governance]
+      description: >-
+        Evidence that content deleted under a schedule or a revocation was actually
+        removed from each downstream store.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Deletion evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataEnvelopeRetentionSchedule"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    PersonId:
+      name: personId
+      in: path
+      required: true
+      schema:
+        type: string
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnprocessableEntity:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    ResponseMeta:
+      type: object
+      required: [requestId, timestamp]
+      properties:
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+          example: USD
+    AssuranceLevel:
+      type: string
+      enum: [anonymous, self_asserted, verified_low, verified_substantial, verified_high]
+    SensitiveSegment:
+      type: string
+      enum: [behavioural_health, substance_use, reproductive, hiv, gender_identity, genetic, minor_confidential]
+    ChannelType:
+      type: string
+      enum: [owned_app, web_chat, messaging_platform, voice_assistant, shared_display, member_directed_third_party, agent_assist]
+    AIRole:
+      type: string
+      enum: [curator, advisor, orchestrator]
+      description: The three roles the source assigns to AI in the healthcare experience
+    Person:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        memberNumberRef:
+          type: string
+          description: Pseudonymous reference resolvable only inside the covered-entity boundary
+        preferredLanguage:
+          type: string
+        accessibilityNeeds:
+          type: array
+          items:
+            type: string
+        sensitiveSegmentsDeclined:
+          type: array
+          items:
+            $ref: "#/components/schemas/SensitiveSegment"
+        activeGrantCount:
+          type: integer
+        ledgerAvailableFrom:
+          type: string
+          format: date
+    IdentityAssuranceRecord:
+      type: object
+      required: [sessionId, personId, level, channelId]
+      properties:
+        sessionId:
+          type: string
+        personId:
+          type: string
+        channelId:
+          type: string
+        level:
+          $ref: "#/components/schemas/AssuranceLevel"
+        methodsUsed:
+          type: array
+          items:
+            type: string
+        requiredLevelForRequestedPurpose:
+          $ref: "#/components/schemas/AssuranceLevel"
+        stepUpAvailable:
+          type: boolean
+        sharedDeviceSuspected:
+          type: boolean
+        openedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    AssuranceSessionCreate:
+      type: object
+      required: [channelId, personRef]
+      properties:
+        channelId:
+          type: string
+        personRef:
+          type: string
+        assertedMethods:
+          type: array
+          items:
+            type: string
+        requestedPurposeId:
+          type: string
+        deviceContext:
+          type: object
+          properties:
+            sharedDevice:
+              type: boolean
+            speakerRecognised:
+              type: boolean
+            householdProfileCount:
+              type: integer
+    DataScope:
+      type: object
+      required: [code, label, sensitivity]
+      properties:
+        code:
+          type: string
+          example: clinical_allergies
+        label:
+          type: string
+          description: Plain member-readable name for the data category
+        category:
+          type: string
+          enum: [benefits_coverage, claims_history, cost_estimate, clinical_history, allergies, procedures, medications, lifestyle_behaviour, device_readings, genomics, care_programme_enrolment]
+        sensitivity:
+          type: string
+          enum: [standard, heightened]
+        sensitiveSegment:
+          $ref: "#/components/schemas/SensitiveSegment"
+        minimumAssuranceLevel:
+          $ref: "#/components/schemas/AssuranceLevel"
+        sourceSystem:
+          type: string
+    PurposeDefinition:
+      type: object
+      required: [id, name, memberWording, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        memberWording:
+          type: string
+          description: The sentence shown to the member when the grant is requested
+        aiRole:
+          $ref: "#/components/schemas/AIRole"
+        requiredScopes:
+          type: array
+          items:
+            type: string
+        optionalScopes:
+          type: array
+          items:
+            type: string
+        allowedChannelTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChannelType"
+        minimumAssuranceLevel:
+          $ref: "#/components/schemas/AssuranceLevel"
+        secondaryUse:
+          type: boolean
+          description: True for purposes such as model improvement, which require their own grant
+        degradedCapability:
+          type: string
+          description: What the member still gets if this purpose is not granted
+        status:
+          type: string
+          enum: [active, restricted, retired]
+        legalBasis:
+          type: string
+          enum: [treatment_operations, member_authorisation, gdpr_article_9_explicit_consent, part_2_consent, marketing_consent]
+    PurposeDefinitionCreate:
+      type: object
+      required: [name, memberWording, requiredScopes]
+      properties:
+        name:
+          type: string
+        memberWording:
+          type: string
+        aiRole:
+          $ref: "#/components/schemas/AIRole"
+        requiredScopes:
+          type: array
+          items:
+            type: string
+        optionalScopes:
+          type: array
+          items:
+            type: string
+        allowedChannelTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChannelType"
+        minimumAssuranceLevel:
+          $ref: "#/components/schemas/AssuranceLevel"
+        secondaryUse:
+          type: boolean
+        degradedCapability:
+          type: string
+        legalBasis:
+          type: string
+    SensitiveSegmentPolicy:
+      type: object
+      required: [segment, permittedChannelTypes]
+      properties:
+        segment:
+          $ref: "#/components/schemas/SensitiveSegment"
+        permittedChannelTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChannelType"
+        separateGrantWording:
+          type: string
+        neverInferable:
+          type: boolean
+          default: true
+          description: Refusals must not reveal that this segment exists for the member
+        redisclosureRestricted:
+          type: boolean
+        minimumAssuranceLevel:
+          $ref: "#/components/schemas/AssuranceLevel"
+        setBy:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date
+    RecipientAgreement:
+      type: object
+      required: [instrumentType, expiresOn]
+      properties:
+        instrumentType:
+          type: string
+          enum: [business_associate_agreement, data_processing_agreement, member_authorisation, api_terms_only, none]
+        reference:
+          type: string
+        counterparty:
+          type: string
+        signedOn:
+          type: string
+          format: date
+        expiresOn:
+          type: string
+          format: date
+        outsideCoveredEntityBoundary:
+          type: boolean
+        permittedOnwardTransfers:
+          type: array
+          items:
+            type: string
+    ChannelRegistration:
+      type: object
+      required: [id, name, channelType, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        channelType:
+          $ref: "#/components/schemas/ChannelType"
+        operator:
+          type: string
+        status:
+          type: string
+          enum: [registered, approved, suspended, lapsed, retired]
+        sharedDeviceRisk:
+          type: boolean
+        transcriptRetentionDays:
+          type: integer
+        recipientAgreement:
+          $ref: "#/components/schemas/RecipientAgreement"
+        approvals:
+          type: array
+          items:
+            type: object
+            properties:
+              purposeId:
+                type: string
+              allowedScopes:
+                type: array
+                items:
+                  type: string
+              sensitiveSegmentsAllowed:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SensitiveSegment"
+              approvedBy:
+                type: string
+              expiresOn:
+                type: string
+                format: date
+        fallbackChannelId:
+          type: string
+        suspendedReason:
+          type: string
+    ChannelRegistrationCreate:
+      type: object
+      required: [name, channelType]
+      properties:
+        name:
+          type: string
+        channelType:
+          $ref: "#/components/schemas/ChannelType"
+        operator:
+          type: string
+        sharedDeviceRisk:
+          type: boolean
+        transcriptRetentionDays:
+          type: integer
+        fallbackChannelId:
+          type: string
+    ConsentGrant:
+      type: object
+      required: [id, personId, purposeId, scopes, status]
+      properties:
+        id:
+          type: string
+        personId:
+          type: string
+        purposeId:
+          type: string
+        channelId:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        sensitiveSegments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SensitiveSegment"
+        status:
+          type: string
+          enum: [active, expired, revoked, pending]
+        grantedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        wordingShown:
+          type: string
+        wordingVersion:
+          type: string
+        languageShown:
+          type: string
+        assuranceLevelAtGrant:
+          $ref: "#/components/schemas/AssuranceLevel"
+        revokedAt:
+          type: string
+          format: date-time
+        revocationReason:
+          type: string
+        capabilitiesLostOnRevocation:
+          type: array
+          items:
+            type: string
+    ConsentGrantRequest:
+      type: object
+      required: [purposeId, channelId, scopes]
+      properties:
+        purposeId:
+          type: string
+        channelId:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        sensitiveSegments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SensitiveSegment"
+        triggeringQuestion:
+          type: string
+          description: The member question that created the need, so consent is contextual
+        durationDays:
+          type: integer
+        wordingVersion:
+          type: string
+        languageShown:
+          type: string
+    AccessDecisionRequest:
+      type: object
+      required: [sessionId, channelId, purposeId, requestedScopes]
+      properties:
+        sessionId:
+          type: string
+        channelId:
+          type: string
+        purposeId:
+          type: string
+        requestedScopes:
+          type: array
+          items:
+            type: string
+        questionSummary:
+          type: string
+        assertsPerishableFact:
+          type: boolean
+        curationHasEconomicInterest:
+          type: boolean
+    AccessDecision:
+      type: object
+      required: [id, outcome, personId, channelId, purposeId]
+      properties:
+        id:
+          type: string
+        outcome:
+          type: string
+          enum: [allow, narrowed_allow, refuse]
+        personId:
+          type: string
+        channelId:
+          type: string
+        purposeId:
+          type: string
+        grantId:
+          type: string
+        allowedScopes:
+          type: array
+          items:
+            type: string
+        withheldScopes:
+          type: array
+          items:
+            type: string
+        memberSafeReason:
+          type: string
+          description: Wording that does not reveal whether a sensitive segment exists
+        internalReasonCodes:
+          type: array
+          items:
+            type: string
+            enum:
+              - no_grant
+              - grant_expired
+              - purpose_retired
+              - channel_not_approved
+              - instrument_expired
+              - assurance_insufficient
+              - sensitive_segment_not_permitted
+              - member_declined_segment
+              - co_presence_risk
+              - provenance_unavailable
+        stepUpOffered:
+          $ref: "#/components/schemas/AssuranceLevel"
+        grantRequestOffered:
+          type: string
+        decidedAt:
+          type: string
+          format: date-time
+        policyVersion:
+          type: string
+    CoPresenceControlRequest:
+      type: object
+      required: [signals]
+      properties:
+        signals:
+          type: object
+          properties:
+            multipleVoicesDetected:
+              type: boolean
+            speakerRecognised:
+              type: boolean
+            publicLocation:
+              type: boolean
+            screenShared:
+              type: boolean
+        requestedScopes:
+          type: array
+          items:
+            type: string
+    CoPresenceControl:
+      type: object
+      required: [decisionId, action]
+      properties:
+        decisionId:
+          type: string
+        action:
+          type: string
+          enum: [deliver_in_full, summarise_without_detail, withhold_and_offer_private_channel, defer_to_agent]
+        redirectedToChannelId:
+          type: string
+        signalsConsidered:
+          type: object
+          additionalProperties:
+            type: boolean
+        appliedAt:
+          type: string
+          format: date-time
+    AnswerProvenanceCreate:
+      type: object
+      required: [factType, sourceSystem, verifiedAt]
+      properties:
+        interactionId:
+          type: string
+        factType:
+          type: string
+          enum: [cost_estimate, benefit_statement, accumulator_balance, network_status, coverage_determination, prior_authorisation_status]
+        sourceSystem:
+          type: string
+        sourceReference:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date-time
+        assumptions:
+          type: array
+          items:
+            type: string
+        estimateRangeLow:
+          $ref: "#/components/schemas/Money"
+        estimateRangeHigh:
+          $ref: "#/components/schemas/Money"
+    AnswerProvenance:
+      type: object
+      required: [id, factType, sourceSystem, verifiedAt, valid]
+      properties:
+        id:
+          type: string
+        interactionId:
+          type: string
+        factType:
+          type: string
+        sourceSystem:
+          type: string
+        sourceReference:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+        validUntil:
+          type: string
+          format: date-time
+        valid:
+          type: boolean
+        stalenessReason:
+          type: string
+          enum: [plan_year_changed, accumulator_updated, network_status_changed, fee_schedule_changed, none]
+        assumptions:
+          type: array
+          items:
+            type: string
+        memberFacingCaveat:
+          type: string
+    SteeringDisclosure:
+      type: object
+      required: [interactionId, optionsPresented, disclosureText]
+      properties:
+        id:
+          type: string
+        interactionId:
+          type: string
+        aiRole:
+          $ref: "#/components/schemas/AIRole"
+        optionsPresented:
+          type: array
+          items:
+            type: object
+            properties:
+              option:
+                type: string
+              economicInterest:
+                type: string
+                enum: [owned_facility, preferred_network, in_house_programme, contracted_partner, none]
+              rankPosition:
+                type: integer
+        disclosureText:
+          type: string
+        presentedAt:
+          type: string
+          format: date-time
+    InteractionRecordCreate:
+      type: object
+      required: [decisionId, channelId, questionSummary, answerSummary]
+      properties:
+        decisionId:
+          type: string
+        channelId:
+          type: string
+        aiRole:
+          $ref: "#/components/schemas/AIRole"
+        questionSummary:
+          type: string
+        answerSummary:
+          type: string
+        scopesUsed:
+          type: array
+          items:
+            type: string
+        provenanceId:
+          type: string
+        steeringDisclosureId:
+          type: string
+        coPresenceAction:
+          type: string
+        transcriptReference:
+          type: string
+    InteractionRecord:
+      type: object
+      required: [id, personId, channelId, occurredAt]
+      properties:
+        id:
+          type: string
+        personId:
+          type: string
+        channelId:
+          type: string
+        decisionId:
+          type: string
+        grantId:
+          type: string
+        aiRole:
+          $ref: "#/components/schemas/AIRole"
+        purposeId:
+          type: string
+        questionSummary:
+          type: string
+        answerSummary:
+          type: string
+        scopesUsed:
+          type: array
+          items:
+            type: string
+        provenance:
+          $ref: "#/components/schemas/AnswerProvenance"
+        steeringDisclosureId:
+          type: string
+        coPresenceAction:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        transcriptRetentionUntil:
+          type: string
+          format: date
+        disputeId:
+          type: string
+    DisclosureLedgerEntry:
+      type: object
+      required: [interactionId, occurredAt, purposeLabel, channelLabel]
+      properties:
+        interactionId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        purposeLabel:
+          type: string
+        channelLabel:
+          type: string
+        dataUsedLabels:
+          type: array
+          items:
+            type: string
+          description: Plain member-readable names, not internal scope codes
+        whatYouWereTold:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+        wasStale:
+          type: boolean
+        disclosureShown:
+          type: string
+        grantId:
+          type: string
+        disputable:
+          type: boolean
+    DisputeCaseCreate:
+      type: object
+      required: [interactionId, claim]
+      properties:
+        interactionId:
+          type: string
+        claim:
+          type: string
+          enum: [answer_was_wrong, answer_was_out_of_date, data_used_without_permission, sensitive_information_exposed, option_steering_undisclosed]
+        memberNarrative:
+          type: string
+        raisedByAgentId:
+          type: string
+    DisputeCase:
+      type: object
+      required: [id, interactionId, claim, status, openedAt]
+      properties:
+        id:
+          type: string
+        interactionId:
+          type: string
+        personId:
+          type: string
+        claim:
+          type: string
+        memberNarrative:
+          type: string
+        status:
+          type: string
+          enum: [open, under_review, resolved, withdrawn, overdue]
+        openedAt:
+          type: string
+          format: date-time
+        resolutionDueBy:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          enum: [answer_confirmed, answer_incorrect, answer_stale, scope_violation, no_finding]
+        remedy:
+          type: string
+          enum: [corrected_answer, claim_reprocessed, policy_change, channel_suspended, none]
+        resolvedBy:
+          type: string
+        rationale:
+          type: string
+        evidenceFromLedger:
+          type: boolean
+    RetentionSchedule:
+      type: object
+      required: [scopeCode, channelType, retentionDays]
+      properties:
+        scopeCode:
+          type: string
+        channelType:
+          $ref: "#/components/schemas/ChannelType"
+        retentionDays:
+          type: integer
+        contentHeldSeparatelyFromDecisionMetadata:
+          type: boolean
+          default: true
+        transcriptRetentionDays:
+          type: integer
+        modelImprovementCopyAllowed:
+          type: boolean
+        deletionEvidence:
+          type: array
+          items:
+            type: object
+            properties:
+              store:
+                type: string
+              deletedAt:
+                type: string
+                format: date-time
+              recordCount:
+                type: integer
+              confirmationReference:
+                type: string
+        setBy:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date
+    DataEnvelopeIdentityAssuranceRecord:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/IdentityAssuranceRecord"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopePurposeDefinition:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/PurposeDefinition"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeSensitiveSegmentPolicy:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/SensitiveSegmentPolicy"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeChannelRegistration:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ChannelRegistration"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeConsentGrant:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/ConsentGrant"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeAccessDecision:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/AccessDecision"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeCoPresenceControl:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/CoPresenceControl"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeInteractionRecord:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/InteractionRecord"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeAnswerProvenance:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/AnswerProvenance"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeSteeringDisclosure:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/SteeringDisclosure"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeDisputeCase:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/DisputeCase"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    DataEnvelopeRetentionSchedule:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: "#/components/schemas/RetentionSchedule"
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopePurposeDefinition:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/PurposeDefinition"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeDataScope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/DataScope"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeChannelRegistration:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ChannelRegistration"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeConsentGrant:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConsentGrant"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeDisclosureLedgerEntry:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/DisclosureLedgerEntry"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeDisputeCase:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/DisputeCase"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
+    ListEnvelopeRetentionSchedule:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/RetentionSchedule"
+            nextCursor:
+              type: string
+        meta:
+          $ref: "#/components/schemas/ResponseMeta"
